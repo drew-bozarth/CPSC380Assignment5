@@ -28,18 +28,18 @@ uint16_t checksum(char *address, uint32_t tally)
 
     uint16_t *buf = (uint16_t *) address;
 
-    // Main summing loop
+    // summing loop
     while(tally > 1)
     {
         sum = sum + *(buf)++;
         tally = tally - 2;
     }
 
-    // Add left-over byte, if any
+    // if there is left-over byte, add
     if (tally > 0)
         sum = sum + *address;
 
-    // Fold 32-bit sum to 16 bits
+    // fold 32-bit sum to 16 bits
     while (sum>>16)
         sum = (sum & 0xFFFF) + (sum >> 16);
 
@@ -65,52 +65,51 @@ void* consumer();
 int n_items;
 
 int main(int argc, char *argv[]){
-
-  // check for mis-input
+  // error handle to check if there was not a command line argument given
   if (argc != 2){
     printf("Incorrect args");
     return -1;
   }
 
-  /* declare size */
+  // set size of n_items to what the command line arg was
   n_items = atoi(argv[1]);
 
   sem_unlink("empty");
   sem_unlink("full");
   shm_unlink(shm_name);
 
-  /* create and initialize the mutex and semaphores */
+  // create mutex and semaphores
   pthread_mutex_init(&mutex, NULL);
   empty = sem_open("/empty", O_CREAT, 0644, n_items);
   full = sem_open("/full", O_CREAT, 0644, 0);
 
-  /* create the shared memory segment */
+  // create shared memory buffer
   shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0644);
   if (shm_fd == -1) {
-      fprintf(stderr, "Error unable to create shared memory, '%s, errno = %d (%s)\n", shm_name,
+      fprintf(stderr, "ERROR - shared memory not created, '%s, errno = %d (%s)\n", shm_name,
         errno, strerror(errno));
       return -1;
   }
 
-  /* configure the size of the shared memory segment */
+  // configure the size of the shared memory segment
   if (ftruncate(shm_fd, n_items*sizeof(ITEM)) == -1) {
-      fprintf(stderr, "Error configure create shared memory, '%s, errno = %d (%s)\n", shm_name,
+      fprintf(stderr, "ERROR - not able to configure shared memory segment, '%s, errno = %d (%s)\n", shm_name,
         errno, strerror(errno));
       shm_unlink(shm_name);
       return -1;
   }
 
-  /* get configuration of shared memory segment */
+  // get configuration of shared memory segment
   if (fstat(shm_fd, &buf) == -1) {
-      fprintf(stderr, "Error unable to status shared memory segment fd = %d, errno = %d (%s)\n", shm_fd,
+      fprintf(stderr, "ERROR - not able to get status of shared memory segment, fd = %d, errno = %d (%s)\n", shm_fd,
               errno, strerror(errno));
       return -1;
   }
 
-  /* attach to shared memory region */
+  // attach to shared memory region
   shm_ptr = (uint8_t *)mmap(0, buf.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
   if (shm_ptr == MAP_FAILED) {
-      fprintf(stderr, "Error: unable to map shared memory segment, errno = %d (%s) \n",
+      fprintf(stderr, "ERROR - not able to map to shared memory segment, errno = %d (%s) \n",
               errno, strerror(errno));
       return -1;
   }
@@ -121,32 +120,29 @@ int main(int argc, char *argv[]){
 
   res = pthread_create(&a_thread[0], NULL, producer, NULL);
   if (res != 0) {
-      perror("Producer thread creation failed");
+      perror("Producer thread not able to be created");
       exit(EXIT_FAILURE);
   }
 
   res = pthread_create(&a_thread[1], NULL, consumer, NULL);
   if (res != 0) {
-      perror("Consumer thread creation failed");
+      perror("Consumer thread not able to be created");
       exit(EXIT_FAILURE);
   }
 
   pthread_join(a_thread[0],NULL);
   pthread_join(a_thread[1],NULL);
 
-  /* remove the shared memory segment */
+  // remove the shared memory segment
   if (shm_unlink(shm_name) == -1) {
-      fprintf(stderr, "Error unable to remove shared memory segment '%s', errno = %d (%s) \n", shm_name,
+      fprintf(stderr, "ERROR - not able to remove shared memory segment '%s', errno = %d (%s) \n", shm_name,
               errno, strerror(errno));
       return -1;
   }
 
-  // sem_unlink("full");
-  // sem_unlink("empty");
-
 }
 
-// thread functions
+// producer thread function
 void* producer(void* arg){
 
   ITEM item;
@@ -154,33 +150,33 @@ void* producer(void* arg){
   item.checksum = checksum((char*) item.data, 22);
 
   srand (time(0));
-  int counter = 0;
-  while(counter<n_items){
-    item.seqn = counter++;
+  int index = 0;
+  while(index<n_items){
+    item.seqn = index++;
     item.timestamp = time(NULL);
     for(int j = 0; j <22; ++j){
       item.data[j] = (uint8_t)rand() % 256;
     }
     item.checksum = checksum((char*) item.data, 22);
 
-    printf("sum: %s\n", item.data);
+    printf("Sum = %s\n", item.data);
     fflush(stdout);
 
     sem_wait(empty);
     pthread_mutex_lock(&mutex);
-      //critical section
-
+      // critical section
       memcpy((void*) &shm_ptr[in], (void*) &item, sizeof(ITEM));
       in = (in + 1) % n_items;
 
     pthread_mutex_unlock(&mutex);
     sem_post(full);
-    printf("Producer item %s\n", item.data);
+    printf("Producer item: %s\n", item.data);
     fflush(stdout);
   }
   return arg;
 }
 
+// consumer thread function
 void *consumer(void* arg){
 
   ITEM item;
@@ -196,23 +192,15 @@ void *consumer(void* arg){
     pthread_mutex_unlock(&mutex);
     sem_post(empty);
 
-    //check sequenceNum
+    //check seqn
     seqn = item.seqn;
-
-    // if (///////) {
-    //   perror("failed");
-    //   exit(EXIT_FAILURE);
-    // }
 
     uint16_t cksum = checksum((char*) item.data, 22);
     if (item.checksum != cksum) {
         printf("failed %u %s\n", cksum, item.data);
         fflush(stdout);
-        // exit(EXIT_FAILURE);
     }
-
   }
-
 
   return arg;
 }

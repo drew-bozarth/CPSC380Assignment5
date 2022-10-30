@@ -14,17 +14,19 @@ repo for Assignment 5 - Thread Synchronization
 
 ## Source Files:
 
+### prodcon.c
+
 ## Known Errors:
 
 ### n/a
 
 ## References:
 
-###
+### Class slides Chapters 6 & 7
 
 ## Instructions:
 
 Change directory into where ever the files are "cd \_\_\_\_"
 Check to make sure the files are there with "ls"
-Compile the choice of program with "make **_" {fcfs,sjf,rr,priority,priority_rr}
-Run with "./_**" {fcfs,sjf,rr,priority,priority_rr} "\_\_\_" {any text file}
+Compile the program with "gcc prodcon.c -o prodcon.out"
+Run with "./prodcon {n}" with n being the desired number of items in the shared buffer
