@@ -133,6 +133,32 @@ int main(int argc, char *argv[]){
   }
 }
 
+void *consumer(void* arg){
+
+  ITEM item;
+  unsigned int seqn;
+
+  while(1) {
+    sem_wait(full);
+    pthread_mutex_lock(&mutex);
+      //critical section
+      memcpy((void*) &item, (void*) &shmPtr[output], sizeof(ITEM));
+      output = (output + 1) % numItems;
+
+    pthread_mutex_unlock(&mutex);
+    sem_post(empty);
+
+    seqn = item.seqn;
+
+    uint16_t cksum = checksum((char*) item.data, 22);
+    if (item.checksum != cksum) {
+        printf("failed %u %s\n", cksum, item.data);
+        fflush(stdout);
+    }
+  }
+  return arg;
+}
+
 void* producer(void* arg){
 
   ITEM item;
@@ -162,33 +188,6 @@ void* producer(void* arg){
     sem_post(full);
     printf("Producer item %s\n", item.data);
     fflush(stdout);
-  }
-  return arg;
-}
-
-void *consumer(void* arg){
-
-  ITEM item;
-  unsigned int seqn;
-
-  while(1) {
-    sem_wait(full);
-    pthread_mutex_lock(&mutex);
-      //critical section
-      memcpy((void*) &item, (void*) &shmPtr[output], sizeof(ITEM));
-      output = (output + 1) % numItems;
-
-    pthread_mutex_unlock(&mutex);
-    sem_post(empty);
-
-    seqn = item.seqn;
-
-    uint16_t cksum = checksum((char*) item.data, 22);
-    if (item.checksum != cksum) {
-        printf("failed %u %s\n", cksum, item.data);
-        fflush(stdout);
-        // exit(EXIT_FAILURE);
-    }
   }
   return arg;
 }
