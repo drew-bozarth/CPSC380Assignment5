@@ -24,129 +24,115 @@ typedef struct item {
 
 uint16_t checksum(char *address, uint32_t tally)
 {
-    register uint32_t sum = 0;
+    register uint32_t totalSum = 0;
 
     uint16_t *buf = (uint16_t *) address;
 
     // Main summing loop
     while(tally > 1)
     {
-        sum = sum + *(buf)++;
+        totalSum = totalSum + *(buf)++;
         tally = tally - 2;
     }
 
     // Add left-over byte, if any
     if (tally > 0)
-        sum = sum + *address;
+        totalSum = totalSum + *address;
 
-    // Fold 32-bit sum to 16 bits
-    while (sum>>16)
-        sum = (sum & 0xFFFF) + (sum >> 16);
+    // Fold 32-bit totalSum to 16 bits
+    while (totalSum>>16)
+        totalSum = (totalSum & 0xFFFF) + (totalSum >> 16);
 
-    return(~sum);
+    return(~totalSum);
 
 }
 
-sem_t *empty;
-sem_t *full;
 pthread_mutex_t mutex;
+sem_t *full;
+sem_t *empty;
 
-char* shm_name = "shm";
+char* shmName = "shm";
 struct stat buf;
-uint8_t  *shm_ptr;
-int shm_fd;
+uint8_t  *shmPtr;
+int shmFd;
 
-int in = 0;
-int out = 0;
+int input = 0;
+int output = 0;
 
 void* producer();
 void* consumer();
 
-int n_items;
+int numItems;
 
 int main(int argc, char *argv[]){
 
-  // check for mis-input
   if (argc != 2){
-    printf("Incorrect args");
+    printf("Incorrect number of args");
     return -1;
   }
 
-  /* declare size */
-  n_items = atoi(argv[1]);
+  numItems = atoi(argv[1]);
 
-  sem_unlink("empty");
+  shm_unlink(shmName);
   sem_unlink("full");
-  shm_unlink(shm_name);
-
-  /* create and initialize the mutex and semaphores */
+  sem_unlink("empty");
+  
   pthread_mutex_init(&mutex, NULL);
-  empty = sem_open("/empty", O_CREAT, 0644, n_items);
   full = sem_open("/full", O_CREAT, 0644, 0);
+  empty = sem_open("/empty", O_CREAT, 0644, numItems);
 
-  /* create the shared memory segment */
-  shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0644);
-  if (shm_fd == -1) {
-      fprintf(stderr, "Error unable to create shared memory, '%s, errno = %d (%s)\n", shm_name,
+  shmFd = shm_open(shmName, O_CREAT | O_RDWR, 0644);
+  if (shmFd == -1) {
+      fprintf(stderr, "Unable to create shared memory, '%s, errno = %d (%s)\n", shmName,
         errno, strerror(errno));
       return -1;
   }
 
-  /* configure the size of the shared memory segment */
-  if (ftruncate(shm_fd, n_items*sizeof(ITEM)) == -1) {
-      fprintf(stderr, "Error configure create shared memory, '%s, errno = %d (%s)\n", shm_name,
+  if (ftruncate(shmFd, numItems*sizeof(ITEM)) == -1) {
+      fprintf(stderr, "Error configure create shared memory, '%s, errno = %d (%s)\n", shmName,
         errno, strerror(errno));
-      shm_unlink(shm_name);
+      shm_unlink(shmName);
       return -1;
   }
 
-  /* get configuration of shared memory segment */
-  if (fstat(shm_fd, &buf) == -1) {
-      fprintf(stderr, "Error unable to status shared memory segment fd = %d, errno = %d (%s)\n", shm_fd,
+  if (fstat(shmFd, &buf) == -1) {
+      fprintf(stderr, "Error unable to status shared memory segment fd = %d, errno = %d (%s)\n", shmFd,
               errno, strerror(errno));
       return -1;
   }
 
-  /* attach to shared memory region */
-  shm_ptr = (uint8_t *)mmap(0, buf.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-  if (shm_ptr == MAP_FAILED) {
+  shmPtr = (uint8_t *)mmap(0, buf.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shmFd, 0);
+  if (shmPtr == MAP_FAILED) {
       fprintf(stderr, "Error: unable to map shared memory segment, errno = %d (%s) \n",
               errno, strerror(errno));
       return -1;
   }
+  int result;
+  pthread_t iThread[2];
+  void *threadResult;
 
-  pthread_t a_thread[2];
-  void *thread_result;
-  int res;
-
-  res = pthread_create(&a_thread[0], NULL, producer, NULL);
-  if (res != 0) {
+  result = pthread_create(&iThread[0], NULL, producer, NULL);
+  if (result != 0) {
       perror("Producer thread creation failed");
       exit(EXIT_FAILURE);
   }
 
-  res = pthread_create(&a_thread[1], NULL, consumer, NULL);
-  if (res != 0) {
+  result = pthread_create(&iThread[1], NULL, consumer, NULL);
+  if (result != 0) {
       perror("Consumer thread creation failed");
       exit(EXIT_FAILURE);
   }
 
-  pthread_join(a_thread[0],NULL);
-  pthread_join(a_thread[1],NULL);
+  pthread_join(iThread[0],NULL);
+  pthread_join(iThread[1],NULL);
 
-  /* remove the shared memory segment */
-  if (shm_unlink(shm_name) == -1) {
-      fprintf(stderr, "Error unable to remove shared memory segment '%s', errno = %d (%s) \n", shm_name,
+  if (shm_unlink(shmName) == -1) {
+      fprintf(stderr, "Error unable to remove shared memory segment '%s', errno = %d (%s) \n", shmName,
               errno, strerror(errno));
       return -1;
   }
-
-  // sem_unlink("full");
-  // sem_unlink("empty");
-
 }
 
-// thread functions
 void* producer(void* arg){
 
   ITEM item;
@@ -155,7 +141,7 @@ void* producer(void* arg){
 
   srand (time(0));
   int counter = 0;
-  while(counter<n_items){
+  while(counter<numItems){
     item.seqn = counter++;
     item.timestamp = time(NULL);
     for(int j = 0; j <22; ++j){
@@ -163,15 +149,14 @@ void* producer(void* arg){
     }
     item.checksum = checksum((char*) item.data, 22);
 
-    printf("sum: %s\n", item.data);
+    printf("totalSum: %s\n", item.data);
     fflush(stdout);
 
     sem_wait(empty);
     pthread_mutex_lock(&mutex);
-      //critical section
 
-      memcpy((void*) &shm_ptr[in], (void*) &item, sizeof(ITEM));
-      in = (in + 1) % n_items;
+      memcpy((void*) &shmPtr[input], (void*) &item, sizeof(ITEM));
+      input = (input + 1) % numItems;
 
     pthread_mutex_unlock(&mutex);
     sem_post(full);
@@ -190,19 +175,13 @@ void *consumer(void* arg){
     sem_wait(full);
     pthread_mutex_lock(&mutex);
       //critical section
-      memcpy((void*) &item, (void*) &shm_ptr[out], sizeof(ITEM));
-      out = (out + 1) % n_items;
+      memcpy((void*) &item, (void*) &shmPtr[output], sizeof(ITEM));
+      output = (output + 1) % numItems;
 
     pthread_mutex_unlock(&mutex);
     sem_post(empty);
 
-    //check sequenceNum
     seqn = item.seqn;
-
-    // if (///////) {
-    //   perror("failed");
-    //   exit(EXIT_FAILURE);
-    // }
 
     uint16_t cksum = checksum((char*) item.data, 22);
     if (item.checksum != cksum) {
@@ -210,9 +189,6 @@ void *consumer(void* arg){
         fflush(stdout);
         // exit(EXIT_FAILURE);
     }
-
   }
-
-
   return arg;
 }
