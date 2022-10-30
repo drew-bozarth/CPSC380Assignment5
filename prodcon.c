@@ -24,64 +24,62 @@ typedef struct item {
 
 uint16_t checksum(char *address, uint32_t tally)
 {
-    register uint32_t sum = 0;
+    register uint32_t totalSum = 0;
 
     uint16_t *buf = (uint16_t *) address;
 
     // summing loop
     while(tally > 1)
     {
-        sum = sum + *(buf)++;
+        totalSum = totalSum + *(buf)++;
         tally = tally - 2;
     }
 
     // if there is left-over byte, add
     if (tally > 0)
-        sum = sum + *address;
+        totalSum = totalSum + *address;
 
-    // fold 32-bit sum to 16 bits
-    while (sum>>16)
-        sum = (sum & 0xFFFF) + (sum >> 16);
+    // Fold 32-bit totalSum to 16 bits
+    while (totalSum>>16)
+        totalSum = (totalSum & 0xFFFF) + (totalSum >> 16);
 
-    return(~sum);
+    return(~totalSum);
 
 }
 
-sem_t *empty;
-sem_t *full;
 pthread_mutex_t mutex;
+sem_t *full;
+sem_t *empty;
 
-char* shm_name = "shm";
+char* shmName = "shm";
 struct stat buf;
-uint8_t  *shm_ptr;
-int shm_fd;
+uint8_t  *shmPtr;
+int shmFd;
 
-int in = 0;
-int out = 0;
+int input = 0;
+int output = 0;
 
 void* producer();
 void* consumer();
 
-int n_items;
+int numItems;
 
 int main(int argc, char *argv[]){
-  // error handle to check if there was not a command line argument given
+
   if (argc != 2){
-    printf("Incorrect args");
+    printf("Please enter more arguments");
     return -1;
   }
 
-  // set size of n_items to what the command line arg was
-  n_items = atoi(argv[1]);
+  numItems = atoi(argv[1]);
 
-  sem_unlink("empty");
+  shm_unlink(shmName);
   sem_unlink("full");
-  shm_unlink(shm_name);
-
-  // create mutex and semaphores
+  sem_unlink("empty");
+  
   pthread_mutex_init(&mutex, NULL);
-  empty = sem_open("/empty", O_CREAT, 0644, n_items);
   full = sem_open("/full", O_CREAT, 0644, 0);
+  empty = sem_open("/empty", O_CREAT, 0644, numItems);
 
   // create shared memory buffer
   shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0644);
@@ -95,7 +93,7 @@ int main(int argc, char *argv[]){
   if (ftruncate(shm_fd, n_items*sizeof(ITEM)) == -1) {
       fprintf(stderr, "ERROR - not able to configure shared memory segment, '%s, errno = %d (%s)\n", shm_name,
         errno, strerror(errno));
-      shm_unlink(shm_name);
+      shm_unlink(shmName);
       return -1;
   }
 
@@ -113,6 +111,9 @@ int main(int argc, char *argv[]){
               errno, strerror(errno));
       return -1;
   }
+  int result;
+  pthread_t iThread[2];
+  void *threadResult;
 
   pthread_t a_thread[2];
   void *thread_result;
@@ -130,8 +131,8 @@ int main(int argc, char *argv[]){
       exit(EXIT_FAILURE);
   }
 
-  pthread_join(a_thread[0],NULL);
-  pthread_join(a_thread[1],NULL);
+  pthread_join(iThread[0],NULL);
+  pthread_join(iThread[1],NULL);
 
   // remove the shared memory segment
   if (shm_unlink(shm_name) == -1) {
@@ -139,10 +140,34 @@ int main(int argc, char *argv[]){
               errno, strerror(errno));
       return -1;
   }
-
 }
 
-// producer thread function
+void *consumer(void* arg){
+
+  ITEM item;
+  unsigned int seqn;
+
+  while(1) {
+    sem_wait(full);
+    pthread_mutex_lock(&mutex);
+      //critical section
+      memcpy((void*) &item, (void*) &shmPtr[output], sizeof(ITEM));
+      output = (output + 1) % numItems;
+
+    pthread_mutex_unlock(&mutex);
+    sem_post(empty);
+
+    seqn = item.seqn;
+
+    uint16_t cksum = checksum((char*) item.data, 22);
+    if (item.checksum != cksum) {
+        printf("failed %u %s\n", cksum, item.data);
+        fflush(stdout);
+    }
+  }
+  return arg;
+}
+
 void* producer(void* arg){
 
   ITEM item;
@@ -164,9 +189,9 @@ void* producer(void* arg){
 
     sem_wait(empty);
     pthread_mutex_lock(&mutex);
-      // critical section
-      memcpy((void*) &shm_ptr[in], (void*) &item, sizeof(ITEM));
-      in = (in + 1) % n_items;
+
+      memcpy((void*) &shmPtr[input], (void*) &item, sizeof(ITEM));
+      input = (input + 1) % numItems;
 
     pthread_mutex_unlock(&mutex);
     sem_post(full);
