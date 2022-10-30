@@ -18,7 +18,7 @@ repo for Assignment 5 - Thread Synchronization
 
 ## Known Errors:
 
-### n/a
+### output for item.data format does not display correctly
 
 ## References:
 

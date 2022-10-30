@@ -82,31 +82,31 @@ int main(int argc, char *argv[]){
   empty = sem_open("/empty", O_CREAT, 0644, numItems);
 
   // create shared memory buffer
-  shm_fd = shm_open(shm_name, O_CREAT | O_RDWR, 0644);
-  if (shm_fd == -1) {
-      fprintf(stderr, "ERROR - shared memory not created, '%s, errno = %d (%s)\n", shm_name,
+  shmFd = shm_open(shmName, O_CREAT | O_RDWR, 0644);
+  if (shmFd == -1) {
+      fprintf(stderr, "ERROR - shared memory not created, '%s, errno = %d (%s)\n", shmName,
         errno, strerror(errno));
       return -1;
   }
 
   // configure the size of the shared memory segment
-  if (ftruncate(shm_fd, n_items*sizeof(ITEM)) == -1) {
-      fprintf(stderr, "ERROR - not able to configure shared memory segment, '%s, errno = %d (%s)\n", shm_name,
+  if (ftruncate(shmFd, numItems*sizeof(ITEM)) == -1) {
+      fprintf(stderr, "ERROR - not able to configure shared memory segment, '%s, errno = %d (%s)\n", shmName,
         errno, strerror(errno));
       shm_unlink(shmName);
       return -1;
   }
 
   // get configuration of shared memory segment
-  if (fstat(shm_fd, &buf) == -1) {
-      fprintf(stderr, "ERROR - not able to get status of shared memory segment, fd = %d, errno = %d (%s)\n", shm_fd,
+  if (fstat(shmFd, &buf) == -1) {
+      fprintf(stderr, "ERROR - not able to get status of shared memory segment, fd = %d, errno = %d (%s)\n", shmFd,
               errno, strerror(errno));
       return -1;
   }
 
   // attach to shared memory region
-  shm_ptr = (uint8_t *)mmap(0, buf.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-  if (shm_ptr == MAP_FAILED) {
+  shmPtr = (uint8_t *)mmap(0, buf.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shmFd, 0);
+  if (shmPtr == MAP_FAILED) {
       fprintf(stderr, "ERROR - not able to map to shared memory segment, errno = %d (%s) \n",
               errno, strerror(errno));
       return -1;
@@ -135,37 +135,11 @@ int main(int argc, char *argv[]){
   pthread_join(iThread[1],NULL);
 
   // remove the shared memory segment
-  if (shm_unlink(shm_name) == -1) {
-      fprintf(stderr, "ERROR - not able to remove shared memory segment '%s', errno = %d (%s) \n", shm_name,
+  if (shm_unlink(shmName) == -1) {
+      fprintf(stderr, "ERROR - not able to remove shared memory segment '%s', errno = %d (%s) \n", shmName,
               errno, strerror(errno));
       return -1;
   }
-}
-
-void *consumer(void* arg){
-
-  ITEM item;
-  unsigned int seqn;
-
-  while(1) {
-    sem_wait(full);
-    pthread_mutex_lock(&mutex);
-      //critical section
-      memcpy((void*) &item, (void*) &shmPtr[output], sizeof(ITEM));
-      output = (output + 1) % numItems;
-
-    pthread_mutex_unlock(&mutex);
-    sem_post(empty);
-
-    seqn = item.seqn;
-
-    uint16_t cksum = checksum((char*) item.data, 22);
-    if (item.checksum != cksum) {
-        printf("failed %u %s\n", cksum, item.data);
-        fflush(stdout);
-    }
-  }
-  return arg;
 }
 
 void* producer(void* arg){
@@ -176,7 +150,7 @@ void* producer(void* arg){
 
   srand (time(0));
   int index = 0;
-  while(index<n_items){
+  while(index<numItems){
     item.seqn = index++;
     item.timestamp = time(NULL);
     for(int j = 0; j <22; ++j){
@@ -211,8 +185,8 @@ void *consumer(void* arg){
     sem_wait(full);
     pthread_mutex_lock(&mutex);
       //critical section
-      memcpy((void*) &item, (void*) &shm_ptr[out], sizeof(ITEM));
-      out = (out + 1) % n_items;
+      memcpy((void*) &item, (void*) &shmPtr[output], sizeof(ITEM));
+      output = (output + 1) % numItems;
 
     pthread_mutex_unlock(&mutex);
     sem_post(empty);
