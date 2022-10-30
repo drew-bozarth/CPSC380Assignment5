@@ -67,7 +67,7 @@ int numItems;
 int main(int argc, char *argv[]){
 
   if (argc != 2){
-    printf("Incorrect number of args");
+    printf("Please enter more arguments");
     return -1;
   }
 
@@ -89,21 +89,21 @@ int main(int argc, char *argv[]){
   }
 
   if (ftruncate(shmFd, numItems*sizeof(ITEM)) == -1) {
-      fprintf(stderr, "Error configure create shared memory, '%s, errno = %d (%s)\n", shmName,
+      fprintf(stderr, "Unable to create shared memory, '%s, errno = %d (%s)\n", shmName,
         errno, strerror(errno));
       shm_unlink(shmName);
       return -1;
   }
 
   if (fstat(shmFd, &buf) == -1) {
-      fprintf(stderr, "Error unable to status shared memory segment fd = %d, errno = %d (%s)\n", shmFd,
+      fprintf(stderr, "Unable to access shared memory segment fd = %d, errno = %d (%s)\n", shmFd,
               errno, strerror(errno));
       return -1;
   }
 
   shmPtr = (uint8_t *)mmap(0, buf.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, shmFd, 0);
   if (shmPtr == MAP_FAILED) {
-      fprintf(stderr, "Error: unable to map shared memory segment, errno = %d (%s) \n",
+      fprintf(stderr, "Unable to map shared memory segment, errno = %d (%s) \n",
               errno, strerror(errno));
       return -1;
   }
@@ -113,13 +113,13 @@ int main(int argc, char *argv[]){
 
   result = pthread_create(&iThread[0], NULL, producer, NULL);
   if (result != 0) {
-      perror("Producer thread creation failed");
+      perror("Producer thread unable to be created");
       exit(EXIT_FAILURE);
   }
 
   result = pthread_create(&iThread[1], NULL, consumer, NULL);
   if (result != 0) {
-      perror("Consumer thread creation failed");
+      perror("Consumer thread unable to be created");
       exit(EXIT_FAILURE);
   }
 
@@ -127,7 +127,7 @@ int main(int argc, char *argv[]){
   pthread_join(iThread[1],NULL);
 
   if (shm_unlink(shmName) == -1) {
-      fprintf(stderr, "Error unable to remove shared memory segment '%s', errno = %d (%s) \n", shmName,
+      fprintf(stderr, "Unable to terminate and remove shared memory segment '%s', errno = %d (%s) \n", shmName,
               errno, strerror(errno));
       return -1;
   }
