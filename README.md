@@ -20,6 +20,8 @@ repo for Assignment 5 - Thread Synchronization
 
 ### output for item.data format does not display correctly
 
+### output produces failed messages like "failed 48830" nItems - 1 times
+
 ## References:
 
 ### Class slides Chapters 6 & 7
